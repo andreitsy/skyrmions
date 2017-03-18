@@ -1,0 +1,104 @@
+(* Content-type: application/vnd.wolfram.mathematica *)
+
+(*** Wolfram Notebook File ***)
+(* http://www.wolfram.com/nb *)
+
+(* CreatedBy='Mathematica 10.0' *)
+
+(*CacheID: 234*)
+(* Internal cache information:
+NotebookFileLineBreakTest
+NotebookFileLineBreakTest
+NotebookDataPosition[       158,          7]
+NotebookDataLength[      2997,         95]
+NotebookOptionsPosition[      2509,         73]
+NotebookOutlinePosition[      2849,         88]
+CellTagsIndexPosition[      2806,         85]
+WindowFrame->Normal*)
+
+(* Beginning of Notebook Content *)
+Notebook[{
+
+Cell[CellGroupData[{
+Cell[BoxData[
+ RowBox[{"\[IndentingNewLine]", 
+  RowBox[{
+   RowBox[{"k1", "=", "9"}], "\[IndentingNewLine]", 
+   RowBox[{"k2", "=", "7"}], "\[IndentingNewLine]", 
+   "\[IndentingNewLine]"}]}]], "Input",
+ CellChangeTimes->{{3.665487446907373*^9, 3.665487452674753*^9}, {
+  3.665487716115864*^9, 3.665487720086873*^9}}],
+
+Cell[BoxData["9"], "Output",
+ CellChangeTimes->{3.665487453569388*^9, 3.6654877214890203`*^9}],
+
+Cell[BoxData["7"], "Output",
+ CellChangeTimes->{3.665487453569388*^9, 3.665487721489914*^9}]
+}, Open  ]],
+
+Cell[CellGroupData[{
+
+Cell[BoxData[{
+ RowBox[{"Print", "[", "\"\<G:\>\"", "]"}], "\[IndentingNewLine]", 
+ RowBox[{"exchG", "[", 
+  RowBox[{"k1", ",", "k2"}], "]"}], "\[IndentingNewLine]", 
+ RowBox[{"exchGG", "[", 
+  RowBox[{"k1", ",", "k1", ",", "0"}], "]"}], "\[IndentingNewLine]", 
+ RowBox[{"exchGExact", "[", 
+  RowBox[{"k1", ",", "k1"}], "]"}], "\[IndentingNewLine]", 
+ RowBox[{"Print", "[", "\"\<F1:\>\"", "]"}], "\[IndentingNewLine]", 
+ RowBox[{"exchF1", "[", 
+  RowBox[{"k1", ",", "k2"}], "]"}], "\[IndentingNewLine]", 
+ RowBox[{"exchFF1", "[", 
+  RowBox[{"k1", ",", "k1", ",", "0"}], "]"}], "\[IndentingNewLine]", 
+ RowBox[{"exchF1Exact", "[", 
+  RowBox[{"k1", ",", "k1"}], "]"}], "\[IndentingNewLine]", 
+ RowBox[{"Print", "[", "\"\<F2:\>\"", "]"}], "\[IndentingNewLine]", 
+ RowBox[{"exchF2", "[", 
+  RowBox[{"k1", ",", "k2"}], "]"}], "\[IndentingNewLine]", 
+ RowBox[{"exchFF2", "[", 
+  RowBox[{"k1", ",", "k1", ",", "0"}], "]"}], "\[IndentingNewLine]", 
+ RowBox[{"exchF2Exact", "[", 
+  RowBox[{"k1", ",", "k1"}], "]"}]}], "Input",
+ CellChangeTimes->{{3.665487434640251*^9, 3.665487515239345*^9}, {
+  3.665487802746201*^9, 3.6654878300548677`*^9}}],
+
+Cell[BoxData["\<\"G:\"\>"], "Print",
+ CellChangeTimes->{3.6654884229916162`*^9, 3.6654957904191008`*^9}]
+}, Open  ]],
+
+Cell[BoxData[""], "Input",
+ CellChangeTimes->{{3.6654874320572863`*^9, 3.665487433281169*^9}, 
+   3.6654874660904512`*^9}]
+},
+WindowSize->{1039, 595},
+WindowMargins->{{Automatic, 126}, {95, Automatic}},
+FrontEndVersion->"10.0 for Linux x86 (64-bit) (September 9, 2014)",
+StyleDefinitions->"Default.nb"
+]
+(* End of Notebook Content *)
+
+(* Internal cache information *)
+(*CellTagsOutline
+CellTagsIndex->{}
+*)
+(*CellTagsIndex
+CellTagsIndex->{}
+*)
+(*NotebookFileOutline
+Notebook[{
+Cell[CellGroupData[{
+Cell[580, 22, 318, 7, 121, "Input"],
+Cell[901, 31, 94, 1, 32, "Output"],
+Cell[998, 34, 92, 1, 32, "Output"]
+}, Open  ]],
+Cell[CellGroupData[{
+Cell[1127, 40, 1134, 23, 275, "Input"],
+Cell[2264, 65, 104, 1, 24, "Print"]
+}, Open  ]],
+Cell[2383, 69, 122, 2, 32, "Input"]
+}
+]
+*)
+
+(* End of internal cache information *)
