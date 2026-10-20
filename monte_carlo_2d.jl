@@ -1,7 +1,8 @@
 #!/usr/bin/env julia
 #=
-monte_carlo_2d.jl — Metropolis Monte Carlo of the two-dimensional chiral magnet and its
-(b, θ) phase diagram at fixed anisotropy a.
+monte_carlo_2d.jl — Metropolis Monte Carlo of the two-dimensional chiral magnet: the (b, θ)
+phase diagram at fixed anisotropy a on a periodic lattice, or the (b, a) diagram at fixed θ
+of a small disk with a pinned rim (the circular-cell approximation of phase_diagram_ba.jl).
 
 Method: README_monte_carlo_2d.md (adapted from the supplement to Yu et al., Nature 465, 901
 (2010), pp. 4–6). "Sec." below refers to that document.
@@ -13,6 +14,14 @@ Model (Sec. 3) — classical unit spins on a periodic Nx × Ny square lattice,
 with J = 1, D = h, B = b h², K = a h²: h is the mesh spacing in units of ℓ_D = J_c/D_c, so the
 continuum parameters b = B_c J_c/D_c² and a = K_c J_c/D_c² of phase_diagram_ba.jl are preserved
 (Sec. 3.2). Temperature θ = k_B T / J_lat (Sec. 3.3).
+
+Disk geometry (--geometry disk, Sec. 15.5) — the same lattice Hamiltonian in a periodic box in
+which only the sites with r ≤ R/h (R in units of ℓ_D) are updated; every other site is frozen at
++ẑ. This is the Dirichlet rim β(R) = 0 of the circular cell of Aristov–Tsypilnikov Eq. (8)
+and phase_diagram_ba.jl, so after the T = 0 quench the energy density
+ρ = (H − H_sat)/(N_free h²) is directly comparable with ρ_C = E/(πR²) of the continuum solver.
+The disk holds a single skyrmion (or none), so its labels are Skyrmion / Multiple skyrmions /
+Polarized / Helical (stripe fragment) / Paramagnet from ⟨Q⟩, std(Q) and ⟨m_z⟩ of the free sites.
 
 Sampling (Sec. 5) — single-spin Metropolis with a mixed symmetric proposal (spherical cap of
 adapted half-angle δ with probability 1 − pfull, uniform sphere with probability pfull) and the
@@ -62,12 +71,14 @@ BLAS.set_num_threads(1)
 # CLI
 # ---------------------------------------------------------------------------
 const HELP = """
-monte_carlo_2d.jl — Metropolis Monte Carlo (b, θ) phase diagram of the 2D chiral magnet
+monte_carlo_2d.jl — Metropolis Monte Carlo phase diagrams of the 2D chiral magnet:
+  (b, θ) at fixed a on a periodic lattice (default), or (b, a) at fixed θ on a pinned-rim disk
 
-Docs: README_monte_carlo_2d.md (method), README.md (overview)
+Docs: README_monte_carlo_2d.md (method; Sec. 15.5 for the disk), README.md (overview)
 
 USAGE
   julia --project=scripts -t auto monte_carlo_2d.jl [options]
+  julia --project=scripts -t auto monte_carlo_2d.jl --geometry disk --scan ba --theta 0.1 [options]
   julia --project=scripts -t auto monte_carlo_2d.jl --selftest
   julia --project=scripts monte_carlo_2d.jl --help
 
@@ -75,6 +86,20 @@ MODEL (J_lat = 1, D_lat = h, B_lat = b h², K_lat = a h²; θ = k_B T / J_lat)
   --a VAL             easy-axis anisotropy a = K_c J_c/D_c²        (default 0)
   --h VAL             mesh spacing in units of ℓ_D = J_c/D_c       (default 0.5)
   --L N | --Nx --Ny   periodic lattice (even sizes for checkerboard) (default 72 × 72)
+
+GEOMETRY
+  --geometry periodic|disk                                          (default periodic)
+                      disk: sites with r ≤ R/h are free, all others frozen at +z (Dirichlet rim
+                      β(R) = 0, the circular cell of phase_diagram_ba.jl); the box is chosen
+                      automatically (odd, centre on a site, two frozen rings), --L is ignored
+  --R VAL             disk radius in units of ℓ_D                   (default 4.5)
+
+SCAN
+  --scan btheta|ba    btheta: (b, θ) diagram at fixed --a; ba: (b, a) diagram at the lowest θ of the
+                      ladder (give --theta for a single temperature; cooling histories anneal down
+                      the ladder, seeded histories start at that θ)                (default btheta)
+  --amin/--amax       anisotropy window (scan ba)                   (default 0 … 0.8)
+  --na N | --da VAL   number of a points, or step (scan ba)         (default 17)
 
 GRID
   --bmin/--bmax       field window                                  (default 0 … 1)
@@ -90,7 +115,8 @@ HISTORIES (Sec. 6; comma separated)
                       cool: random spins annealed down the ladder (the supplement's protocol);
                       heat-*: seeded helix / triple-q skyrmion lattice / polarized state heated up;
                       field-up/-down: b swept at each θ from a helix seed / polarized state
-                                                                    (default cool,heat-helix,heat-skx,heat-fm)
+                      (default cool,heat-helix,heat-skx,heat-fm; disk: cool,heat-skx,heat-fm, where
+                      heat-skx seeds one Bloch skyrmion filling the disk and heat-helix a stripe)
   --nseeds N          independent seeds per history                 (default 1)
   --seed N            base seed                                     (default 12345)
   --skx-cells NX,MY   triple-q seed cells (default from h and box; N_sk = NX·MY)
@@ -119,10 +145,15 @@ CLASSIFICATION THRESHOLDS (Sec. 9)
   --qcore-min VAL     min |charge| of a masked region to be a core    (default 0.3)
   --resolve energy|strict  cells where histories/seeds disagree: label of the lowest-⟨E⟩ record
                       (marked with a dot; a low-T ground-state proxy, Sec. 10.1) or "Unresolved" (default energy)
+  disk labels (Sec. 15.5): Skyrmion if ⟨Q⟩ ≤ −qsk-min with persistent charge std(Q) ≤ qstd-max (Multiple
+  skyrmions below −1.5), else Polarized if ⟨m_z⟩ ≥ mz-pol, else Helical (stripe fragment) if std(Q) ≤ qstd-max,
+  else Paramagnet
+  --qsk-min VAL       min |⟨Q⟩| for a skyrmion in the disk          (default 0.5)
+  --qstd-max VAL      max std(Q) of an ordered disk state           (default 0.5)
 
 OUTPUT
   --outdir DIR        parent directory (default outputs/monte_carlo_2d)
-  --run-id NAME       run directory name (default a<a>_h<h>_L<L>_<timestamp>)
+  --run-id NAME       run directory name (default a<a>_h<h>_L<L>_<timestamp>, disk: disk_R<R>_theta<θ>_h<h>_<timestamp>)
   --no-snapshots / --no-timeseries / --no-plots
 
 OTHER
@@ -138,6 +169,11 @@ EXAMPLES
   julia --project=scripts -t auto monte_carlo_2d.jl --histories cool --nseeds 2   # supplement protocol only
   julia --project=scripts -t auto monte_carlo_2d.jl --a 0.2 --db 0.1 --ntheta 12 --neq 500 --nprod 500
   julia --project=scripts -t auto monte_carlo_2d.jl --b 0.6 --theta 0.1 --neq 20000 --nprod 20000
+  # pinned-rim disk, (b, a) diagram at θ = 0.1 (R = 4.5, h = 0.25: 41² box, 1018 free spins; ~2 min on 8 threads)
+  julia --project=scripts -t auto monte_carlo_2d.jl --geometry disk --scan ba --R 4.5 --h 0.25 --theta 0.1 \\
+        --neq 2000 --nprod 2000
+  # same, annealed from θ = 1 before measuring at θ = 0.05
+  julia --project=scripts -t auto monte_carlo_2d.jl --geometry disk --scan ba --h 0.25 --theta-max 1 --theta-min 0.05 --ntheta 8
   # cluster scale (Sec. 13.1 mesh; ≈ 6 × 10¹² attempts ≈ 1.5 h on 64 cores; --no-timeseries keeps the CSV small)
   julia --project=scripts -t \$SLURM_CPUS_PER_TASK monte_carlo_2d.jl --h 0.25 --L 144 --db 0.05 --ntheta 40 \\
         --neq 20000 --nprod 20000 --final-factor 5 --nstruct 200 --nseeds 2 --no-timeseries --run-id h0p25_L144
@@ -149,28 +185,33 @@ attempts/s per core; the script prints the total before starting and a rate at t
 function parse_args(args)
 	o = Dict{String,Any}(
 		"a" => 0.0, "h" => 0.5, "Nx" => 72, "Ny" => 72,
+		"geometry" => "periodic", "R" => 4.5, "scan" => "btheta",
+		"amin" => 0.0, "amax" => 0.8, "na" => 17, "da" => nothing,
 		"bmin" => 0.0, "bmax" => 1.0, "nb" => 21, "db" => nothing, "b" => nothing,
 		"theta_max" => 1.5, "theta_min" => 0.02, "ntheta" => 24, "ladder" => "geometric", "theta" => nothing,
-		"histories" => ["cool", "heat-helix", "heat-skx", "heat-fm"], "nseeds" => 1, "seed" => 12345,
+		"histories" => nothing, "nseeds" => 1, "seed" => 12345,
 		"skx_nx" => 0, "skx_my" => 0, "helix_n" => 0,
 		"neq" => 1000, "nprod" => 1000, "nadapt" => 200, "final_factor" => 1, "nquench" => 500,
 		"nmeas" => 10, "nstruct" => 50,
 		"site_order" => "checkerboard", "inner" => 0, "pfull" => 0.05,
 		"peak_min" => 0.02, "mz_pol" => 0.7, "qmin" => 3.0, "psi6_min" => 0.5,
 		"dom_frac" => 0.3, "angle_tol" => 15.0, "s_core" => 0.0, "qcore_min" => 0.3, "resolve" => "energy",
+		"qsk_min" => 0.5, "qstd_max" => 0.5,
 		"outdir" => joinpath(@__DIR__, "outputs", "monte_carlo_2d"), "run_id" => "",
 		"snapshots" => true, "timeseries" => true, "plots" => true,
 		"selftest" => false, "bench" => false,
 	)
 	floats = Dict("--a"=>"a", "--h"=>"h", "--bmin"=>"bmin", "--bmax"=>"bmax", "--db"=>"db", "--b"=>"b",
+		"--R"=>"R", "--amin"=>"amin", "--amax"=>"amax", "--da"=>"da",
 		"--theta-max"=>"theta_max", "--theta-min"=>"theta_min", "--theta"=>"theta", "--pfull"=>"pfull",
 		"--peak-min"=>"peak_min", "--mz-pol"=>"mz_pol", "--qmin"=>"qmin", "--psi6-min"=>"psi6_min",
-		"--dom-frac"=>"dom_frac", "--angle-tol"=>"angle_tol", "--s-core"=>"s_core", "--qcore-min"=>"qcore_min")
-	ints = Dict("--Nx"=>"Nx", "--Ny"=>"Ny", "--nb"=>"nb", "--ntheta"=>"ntheta", "--nseeds"=>"nseeds",
+		"--dom-frac"=>"dom_frac", "--angle-tol"=>"angle_tol", "--s-core"=>"s_core", "--qcore-min"=>"qcore_min",
+		"--qsk-min"=>"qsk_min", "--qstd-max"=>"qstd_max")
+	ints = Dict("--Nx"=>"Nx", "--Ny"=>"Ny", "--nb"=>"nb", "--na"=>"na", "--ntheta"=>"ntheta", "--nseeds"=>"nseeds",
 		"--seed"=>"seed", "--helix-n"=>"helix_n", "--neq"=>"neq", "--nprod"=>"nprod", "--nadapt"=>"nadapt",
 		"--final-factor"=>"final_factor", "--nquench"=>"nquench", "--nmeas"=>"nmeas", "--nstruct"=>"nstruct")
 	strs = Dict("--ladder"=>"ladder", "--site-order"=>"site_order", "--outdir"=>"outdir", "--run-id"=>"run_id",
-		"--resolve"=>"resolve")
+		"--resolve"=>"resolve", "--geometry"=>"geometry", "--scan"=>"scan")
 	i = 1
 	while i ≤ length(args)
 		arg = args[i]
@@ -207,13 +248,27 @@ function parse_args(args)
 	o["ladder"] in ("geometric", "linear") || error("--ladder must be geometric or linear")
 	o["site_order"] in ("checkerboard", "random") || error("--site-order must be checkerboard or random")
 	o["resolve"] in ("energy", "strict") || error("--resolve must be energy or strict")
+	o["geometry"] in ("periodic", "disk") || error("--geometry must be periodic or disk")
+	o["scan"] in ("btheta", "ba") || error("--scan must be btheta or ba")
+	o["R"] > 0 || error("--R must be positive")
+	if o["geometry"] == "disk"
+		o["Nx"] = o["Ny"] = disk_box(o["R"], o["h"])   # --L is ignored for the disk
+	end
+	if o["histories"] === nothing
+		o["histories"] = o["geometry"] == "disk" ? ["cool", "heat-skx", "heat-fm"] :
+		                                           ["cool", "heat-helix", "heat-skx", "heat-fm"]
+	end
 	for hname in o["histories"]
 		hname in ("cool", "heat-helix", "heat-skx", "heat-fm", "field-up", "field-down") ||
 			error("unknown history $hname")
+		o["scan"] == "ba" && startswith(hname, "field-") && error("field sweeps are not available with --scan ba")
 	end
 	o["nmeas"] ≥ 1 && o["nstruct"] ≥ 1 || error("--nmeas and --nstruct must be ≥ 1")
 	return o
 end
+
+"""Odd box side for a disk of radius R (units of ℓ_D) at spacing h: centre on a site, two frozen rings outside."""
+disk_box(R, h) = 2*(ceil(Int, R/h) + 2) + 1
 
 function axis_grid(lo, hi; n=nothing, step=nothing)
 	lo ≤ hi || error("axis range requires lo ≤ hi (got $lo > $hi)")
@@ -244,17 +299,44 @@ struct Model
 	J::Float64; D::Float64; B::Float64; K::Float64
 	h::Float64; b::Float64; a::Float64
 	ip::Vector{Int}; im::Vector{Int}; jp::Vector{Int}; jm::Vector{Int}
+	R::Float64                 # disk radius in units of ℓ_D (0 = periodic lattice, every site free)
+	cx::Float64; cy::Float64   # disk centre (lattice coordinates)
+	free::Matrix{Bool}         # sites updated by the sampler; the others stay at +ẑ (Sec. 15.5)
+	Nfree::Int
 end
 
-"""Lattice couplings from (h, b, a): D = J h, B = J b h², K = J a h² (Sec. 3.2). Override any coupling for tests."""
+"""
+Lattice couplings from (h, b, a): D = J h, B = J b h², K = J a h² (Sec. 3.2). Override any coupling for tests.
+R > 0 selects the pinned-rim disk: free sites satisfy (i − cx)² + (j − cy)² ≤ (R/h)² around the box centre.
+"""
 function Model(Nx::Int, Ny::Int; h::Float64, b::Float64=0.0, a::Float64=0.0, J::Float64=1.0,
-               D::Float64=J*h, B::Float64=J*b*h^2, K::Float64=J*a*h^2)
+               D::Float64=J*h, B::Float64=J*b*h^2, K::Float64=J*a*h^2, R::Float64=0.0)
+	cx = (Nx + 1)/2; cy = (Ny + 1)/2
+	free = R > 0 ? [ (i - cx)^2 + (j - cy)^2 ≤ (R/h)^2 for i in 1:Nx, j in 1:Ny ] : trues(Nx, Ny)
+	R > 0 && (any(free[1, :]) || any(free[end, :]) || any(free[:, 1]) || any(free[:, end])) &&
+		error("disk of radius R/h = $(R/h) sites does not fit in the $(Nx) × $(Ny) box with a frozen rim")
 	Model(Nx, Ny, Nx*Ny, J, D, B, K, h, b, a,
 	      [mod1(i+1, Nx) for i in 1:Nx], [mod1(i-1, Nx) for i in 1:Nx],
-	      [mod1(j+1, Ny) for j in 1:Ny], [mod1(j-1, Ny) for j in 1:Ny])
+	      [mod1(j+1, Ny) for j in 1:Ny], [mod1(j-1, Ny) for j in 1:Ny],
+	      R, cx, cy, free, count(free))
 end
 
-with_b(m::Model, b) = Model(m.Nx, m.Ny, m.N, m.J, m.D, m.J*b*m.h^2, m.K, m.h, b, m.a, m.ip, m.im, m.jp, m.jm)
+with_b(m::Model, b) = Model(m.Nx, m.Ny, m.N, m.J, m.D, m.J*b*m.h^2, m.K, m.h, b, m.a, m.ip, m.im, m.jp, m.jm,
+                            m.R, m.cx, m.cy, m.free, m.Nfree)
+is_disk(m::Model) = m.R > 0
+"""Effective continuum radius of the lattice disk, from its area N_free h² = π R_eff²."""
+disk_R_eff(m::Model) = m.h*sqrt(m.Nfree/π)
+
+"""Set every frozen site to +ẑ (the Dirichlet rim); no-op on the periodic lattice."""
+function freeze!(S, m::Model)
+	is_disk(m) || return S
+	@inbounds for j in 1:m.Ny, i in 1:m.Nx
+		if !m.free[i, j]
+			S[1,i,j] = 0.0; S[2,i,j] = 0.0; S[3,i,j] = 1.0
+		end
+	end
+	S
+end
 
 """Energy components (exchange, DMI, field, anisotropy), each bond counted once in +x, +y (Sec. 3.1)."""
 function energy_components(S::Array{Float64,3}, m::Model)
@@ -276,8 +358,12 @@ function energy_components(S::Array{Float64,3}, m::Model)
 end
 total_energy(S, m::Model) = sum(energy_components(S, m))
 
-"""Continuum-scaled energy density relative to the saturated state (Sec. 3.3): ρ = (H/N + 2J + B)/(J h²)."""
-rho_continuum(e_site, m::Model) = (e_site + 2m.J + m.B)/(m.J*m.h^2)
+"""
+Continuum-scaled energy density relative to the saturated state (Sec. 3.3): ρ = (H/N + 2J + B)/(J h²).
+On the disk the frozen region contributes exactly its saturated energy, so H − H_sat = N (e_site + 2J + B)
+is divided by the free area N_free h² (= π R_eff²), the analogue of ρ_C = E/(πR²) of phase_diagram_ba.jl.
+"""
+rho_continuum(e_site, m::Model) = (e_site + 2m.J + m.B)*m.N/(m.Nfree*m.J*m.h^2)
 
 """Field h_i from the terms linear in S_i, Sec. 5.2 (four neighbours held fixed)."""
 @inline function local_field(S::Array{Float64,3}, m::Model, i::Int, j::Int)
@@ -439,14 +525,25 @@ end
 	return 0.0, 0
 end
 
-"""Update every site of one checkerboard colour in rows jrange (lattice order)."""
+"""Update every free site of one checkerboard colour in rows jrange (lattice order)."""
 function sweep_colour!(S, m::Model, rng::Xoshiro, β, cosδ, pfull, colour::Int, jrange::UnitRange{Int})
 	dE = 0.0; nacc = 0
-	@inbounds for j in jrange
-		istart = ((colour + j) & 1) == 1 ? 1 : 2
-		for i in istart:2:m.Nx
-			d, acc = update_site!(S, m, i, j, rng, β, cosδ, pfull)
-			dE += d; nacc += acc
+	if m.Nfree == m.N
+		@inbounds for j in jrange
+			istart = ((colour + j) & 1) == 1 ? 1 : 2
+			for i in istart:2:m.Nx
+				d, acc = update_site!(S, m, i, j, rng, β, cosδ, pfull)
+				dE += d; nacc += acc
+			end
+		end
+	else
+		@inbounds for j in jrange
+			istart = ((colour + j) & 1) == 1 ? 1 : 2
+			for i in istart:2:m.Nx
+				m.free[i,j] || continue
+				d, acc = update_site!(S, m, i, j, rng, β, cosδ, pfull)
+				dE += d; nacc += acc
+			end
 		end
 	end
 	return dE, nacc
@@ -469,13 +566,16 @@ function row_blocks(Ny, nblocks)
 	[edges[k]+1:edges[k+1] for k in 1:nblocks if edges[k+1] > edges[k]]
 end
 
-"""One Monte Carlo sweep = N attempted updates (Sec. 5.3); updates the cached energy and acceptance counters."""
+"""One Monte Carlo sweep = N_free attempted updates (Sec. 5.3); updates the cached energy and acceptance counters."""
 function sweep!(S, m::Model, sp::Sampler, β::Float64)
 	cosδ = cos(sp.δ)
 	if sp.order == :random
 		rng = sp.rngs[1]; dE = 0.0; nacc = 0
-		@inbounds for _ in 1:m.N
+		@inbounds for _ in 1:m.Nfree
 			i = rand(rng, 1:m.Nx); j = rand(rng, 1:m.Ny)
+			while !m.free[i,j]                     # frozen sites are never proposed
+				i = rand(rng, 1:m.Nx); j = rand(rng, 1:m.Ny)
+			end
 			d, acc = update_site!(S, m, i, j, rng, β, cosδ, sp.pfull)
 			dE += d; nacc += acc
 		end
@@ -499,7 +599,7 @@ function sweep!(S, m::Model, sp::Sampler, β::Float64)
 			end
 		end
 	end
-	sp.natt += m.N
+	sp.natt += m.Nfree
 	return nothing
 end
 
@@ -513,11 +613,40 @@ function adapt_delta!(sp::Sampler, acc; lo=0.3, hi=0.6)
 	sp
 end
 
-"""T = 0 Metropolis quench (accept only ΔH ≤ 0) with a shrinking cap, Sec. 10.1 ground-state comparison."""
-function quench!(S, m::Model, sp::Sampler, nsweeps)
+"""
+One deterministic T = 0 relaxation sweep: every free site (checkerboard order) is set to the direction that
+minimises the tangent-plane bound of its energy, S_i ← (h_i + 2K S_i^z ẑ)/|…|. Since −S·h − K S_z² is concave
+in S_z for K ≥ 0 this never raises the energy, and for K = 0 it is the exact per-site minimum. Returns the
+largest |ΔS| of the sweep.
+"""
+function align_sweep!(S, m::Model)
+	dmax = 0.0
+	@inbounds for colour in 0:1, j in 1:m.Ny
+		istart = ((colour + j) & 1) == 1 ? 1 : 2
+		for i in istart:2:m.Nx
+			m.free[i,j] || continue
+			hx, hy, hz = local_field(S, m, i, j)
+			hz += 2m.K*S[3,i,j]
+			n = sqrt(hx*hx + hy*hy + hz*hz)
+			n > 0 || continue
+			nx = hx/n; ny = hy/n; nz = hz/n
+			d = abs(nx - S[1,i,j]) + abs(ny - S[2,i,j]) + abs(nz - S[3,i,j])
+			d > dmax && (dmax = d)
+			S[1,i,j] = nx; S[2,i,j] = ny; S[3,i,j] = nz
+		end
+	end
+	dmax
+end
+
+"""
+T = 0 quench for the ground-state comparison of Sec. 10.1: a short Metropolis stage that accepts only ΔH ≤ 0
+(a tenth of nsweeps, shrinking cap) followed by alignment sweeps until the largest spin change per sweep is
+below tol or nsweeps is reached. Returns the final energy (also stored in sp.E).
+"""
+function quench!(S, m::Model, sp::Sampler, nsweeps; tol=1e-9)
 	sp.δ = min(sp.δ, 0.5)
 	nbatch = 10
-	for _ in 1:max(1, nsweeps ÷ nbatch)
+	for _ in 1:max(1, nsweeps ÷ (10nbatch))
 		sp.nacc = 0; sp.natt = 0
 		for _ in 1:nbatch
 			sweep!(S, m, sp, Inf)
@@ -526,6 +655,9 @@ function quench!(S, m::Model, sp::Sampler, nsweeps)
 		acc < 0.3 && (sp.δ = max(sp.δ/1.3, 1e-5))
 		acc > 0.6 && (sp.δ = min(sp.δ*1.3, π))
 	end
+	for _ in 1:nsweeps
+		align_sweep!(S, m) < tol && break
+	end
 	sp.E = total_energy(S, m)
 	sp.E
 end
@@ -533,12 +665,14 @@ end
 # ---------------------------------------------------------------------------
 # Observables (Sec. 7)
 # ---------------------------------------------------------------------------
+"""Magnetization per free site (all sites on the periodic lattice; the disk interior only, Sec. 15.5)."""
 function magnetization(S, m::Model)
 	mx = 0.0; my = 0.0; mz = 0.0; sz2 = 0.0
 	@inbounds for j in 1:m.Ny, i in 1:m.Nx
+		m.free[i,j] || continue
 		mx += S[1,i,j]; my += S[2,i,j]; mz += S[3,i,j]; sz2 += S[3,i,j]^2
 	end
-	return mx/m.N, my/m.N, mz/m.N, sz2/m.N
+	return mx/m.Nfree, my/m.Nfree, mz/m.Nfree, sz2/m.Nfree
 end
 
 """Oriented spherical area of the triangle (u, v, w) (Berg–Lüscher, Sec. 7.2)."""
@@ -826,19 +960,21 @@ end
 # ---------------------------------------------------------------------------
 # Phase labels (Sec. 9)
 # ---------------------------------------------------------------------------
-const LABELS = ("Paramagnet", "Polarized", "Helical", "Skyrmion crystal", "Skyrmions (disordered)", "Unresolved")
-const LABEL_CHARS = ('P', 'F', 'H', 'S', 's', '?')
+const LABELS = ("Paramagnet", "Polarized", "Helical", "Skyrmion crystal", "Skyrmions (disordered)",
+                "Skyrmion", "Multiple skyrmions", "Unresolved")
+const LABEL_CHARS = ('P', 'F', 'H', 'S', 's', 'K', 'M', '?')
 const LABEL_RGB = ((0.98, 0.96, 0.82), (0.86, 0.86, 0.86), (0.30, 0.55, 0.85), (0.85, 0.20, 0.25),
-                   (0.95, 0.65, 0.20), (0.40, 0.40, 0.40))
+                   (0.95, 0.65, 0.20), (0.85, 0.20, 0.25), (0.55, 0.25, 0.60), (0.40, 0.40, 0.40))
 const NLABELS = length(LABELS)
 const UNRESOLVED = NLABELS
 label_id(s::AbstractString) = something(findfirst(==(s), LABELS))
 """Classes used for the agreement test: {Paramagnet, Polarized} share one class (crossover, not a transition)."""
-phase_class(id::Int) = id ≤ 2 ? 1 : id == 3 ? 2 : id ≤ 5 ? 3 : 4
+phase_class(id::Int) = id ≤ 2 ? 1 : id == 3 ? 2 : id ≤ 6 ? 3 : id == 7 ? 4 : 5
 
 struct Thresholds
 	peak_min::Float64; mz_pol::Float64; qmin::Float64; psi6_min::Float64
 	dom_frac::Float64; angle_tol::Float64; s_core::Float64; qcore_min::Float64
+	qsk_min::Float64; qstd_max::Float64
 end
 
 """
@@ -867,6 +1003,28 @@ function classify(Qmean, Qerr, Qstd, peaks::PeakInfo, psi6, mz, th::Thresholds)
 	end
 end
 
+"""
+Label one record of the pinned-rim disk (Sec. 15.5). The rim closes the texture, so Q is an integer at every
+snapshot and ⟨Q⟩ is the fraction of time a skyrmion is present: Skyrmion for ⟨Q⟩ ≤ −qsk_min (Multiple
+skyrmions below −1.5, the Bloch core-down convention Q = −1), provided the charge is persistent,
+std(Q) ≤ qstd_max: a skyrmion that flickers between Q = 0 and −1 has std(Q) ≤ 1/2 whatever its lifetime,
+whereas the integer charge of a paramagnetic interior jumps over several units between snapshots (its
+40-snapshot mean occasionally passes a 3σ test, so significance alone is not enough). Without persistent
+charge the interior is Polarized (⟨m_z⟩ ≥ mz_pol), an ordered stripe fragment (std(Q) ≤ qstd_max, "Helical"),
+or a Paramagnet.
+"""
+function classify_disk(Qmean, Qerr, Qstd, mz, th::Thresholds)
+	if Qmean ≤ -th.qsk_min && abs(Qmean) > 3*max(Qerr, 0.0) && Qstd ≤ th.qstd_max
+		return Qmean ≤ -1.5 ? "Multiple skyrmions" : "Skyrmion"
+	elseif mz ≥ th.mz_pol
+		return "Polarized"
+	elseif Qstd ≤ th.qstd_max
+		return "Helical"
+	else
+		return "Paramagnet"
+	end
+end
+
 # ---------------------------------------------------------------------------
 # Trajectories (Sec. 6, 12)
 # ---------------------------------------------------------------------------
@@ -878,32 +1036,40 @@ struct Trajectory
 	points::Vector{Tuple{Float64,Float64}}  # (b, θ) in visiting order
 	bidx::Vector{Int}
 	tidx::Vector{Int}
+	a::Float64                      # anisotropy of this trajectory
+	aidx::Int
 end
 
-function build_trajectories(hists, nseeds, bs, θs)
+"""
+Trajectories of the (b, θ) scan (one `a`), or of the (b, a) scan (scan_ba = true): there only the lowest θ
+of the ladder enters the diagram, so cooling runs anneal down the whole ladder while the seeded heat-*
+histories start directly at θ_min.
+"""
+function build_trajectories(hists, nseeds, bs, θs, as; scan_ba::Bool=false)
 	nb = length(bs); nθ = length(θs)
 	trajs = Trajectory[]
-	for hist in hists, seed in 1:nseeds
+	for (ia, a) in enumerate(as), hist in hists, seed in 1:nseeds
 		if hist == "cool"
 			for j in 1:nb
 				push!(trajs, Trajectory(hist, seed, :random, :temperature,
-					[(bs[j], θs[k]) for k in 1:nθ], fill(j, nθ), collect(1:nθ)))
+					[(bs[j], θs[k]) for k in 1:nθ], fill(j, nθ), collect(1:nθ), a, ia))
 			end
 		elseif startswith(hist, "heat-")
 			init = hist == "heat-helix" ? :helix : hist == "heat-skx" ? :skx : :polarized
+			ks = scan_ba ? [nθ] : collect(nθ:-1:1)
 			for j in 1:nb
 				push!(trajs, Trajectory(hist, seed, init, :temperature,
-					[(bs[j], θs[k]) for k in nθ:-1:1], fill(j, nθ), collect(nθ:-1:1)))
+					[(bs[j], θs[k]) for k in ks], fill(j, length(ks)), ks, a, ia))
 			end
 		elseif hist == "field-up"
 			for k in 1:nθ
 				push!(trajs, Trajectory(hist, seed, :helix, :field,
-					[(bs[j], θs[k]) for j in 1:nb], collect(1:nb), fill(k, nb)))
+					[(bs[j], θs[k]) for j in 1:nb], collect(1:nb), fill(k, nb), a, ia))
 			end
 		elseif hist == "field-down"
 			for k in 1:nθ
 				push!(trajs, Trajectory(hist, seed, :polarized, :field,
-					[(bs[j], θs[k]) for j in nb:-1:1], collect(nb:-1:1), fill(k, nb)))
+					[(bs[j], θs[k]) for j in nb:-1:1], collect(nb:-1:1), fill(k, nb), a, ia))
 			end
 		end
 	end
@@ -912,6 +1078,7 @@ end
 
 Base.@kwdef struct TResult
 	hist::String; seed::Int; b::Float64; θ::Float64; bidx::Int; tidx::Int
+	a::Float64; aidx::Int
 	e::Float64; e_err::Float64; tau_e::Float64; neff_e::Float64
 	e_ex::Float64; e_dm::Float64; e_b::Float64; e_k::Float64
 	cV::Float64
@@ -933,24 +1100,30 @@ end
 
 const PRINT_LOCK = ReentrantLock()
 
+"""Initial state of a trajectory (Sec. 6.1). On the disk, :skx is one Bloch skyrmion filling the disk and the rim is frozen."""
 function init_spins!(S, tr::Trajectory, m::Model, rng, cfg)
 	if tr.init == :random
 		random_spins!(S, rng)
 	elseif tr.init == :helix
 		helix_seed!(S, m; n=cfg.helix_n)
 	elseif tr.init == :skx
-		skx_seed!(S, m; nx=cfg.skx_nx, my=cfg.skx_my)
+		if is_disk(m)
+			bloch_seed!(S, m; R0=m.R/m.h, center=(m.cx, m.cy))
+		else
+			skx_seed!(S, m; nx=cfg.skx_nx, my=cfg.skx_my)
+		end
 	else
 		polarized_seed!(S, rng)
 	end
+	freeze!(S, m)
 end
 
 """Run one trajectory through its (b, θ) points; returns one TResult per point."""
 function run_trajectory(tr::Trajectory, cfg, inner::Int, th::Thresholds)
 	Nx, Ny = cfg.Nx, cfg.Ny
-	m = Model(Nx, Ny; h=cfg.h, b=tr.points[1][1], a=cfg.a)
+	m = Model(Nx, Ny; h=cfg.h, b=tr.points[1][1], a=tr.a, R=cfg.R)
 	S = Array{Float64}(undef, 3, Nx, Ny)
-	key = (cfg.seed, tr.hist, tr.seed, tr.bidx[1], tr.tidx[1])
+	key = (cfg.seed, tr.hist, tr.seed, tr.bidx[1], tr.tidx[1], tr.aidx)
 	rng0 = Xoshiro(hash(key))
 	init_spins!(S, tr, m, rng0, cfg)
 	order = cfg.site_order == "random" ? :random : :checkerboard
@@ -1026,11 +1199,12 @@ function run_trajectory(tr::Trajectory, cfg, inner::Int, th::Thresholds)
 		psi6 = isempty(psi6_vals) ? NaN : mean_of(psi6_vals)
 		psi6l = isempty(psi6l_vals) ? NaN : mean_of(psi6l_vals)
 		nsk = mean_of(ts_nsk)
-		Area = m.N*m.h^2
+		Area = m.Nfree*m.h^2
 		R_eff = abs(sQ.mean) ≥ 0.5 ? sqrt(Area/(π*abs(sQ.mean))) : NaN      # Sec. 10.2, N_sk ≈ |Q|
 		λ_sites = peaks.q1 > 0 ? 2π/peaks.q1 : NaN
 		Qstd = sqrt(var_of(ts_Q))
-		label = classify(sQ.mean, sQ.err, Qstd, peaks, psi6, smz.mean, th)
+		label = is_disk(m) ? classify_disk(sQ.mean, sQ.err, Qstd, smz.mean, th) :
+		                     classify(sQ.mean, sQ.err, Qstd, peaks, psi6, smz.mean, th)
 		# --- optional T = 0 quench at the lowest temperature (Sec. 10.1) ---
 		ρq = NaN; Qq = NaN
 		if is_tmin && cfg.nquench > 0
@@ -1044,10 +1218,11 @@ function run_trajectory(tr::Trajectory, cfg, inner::Int, th::Thresholds)
 		Sz = Float32.(S[3, :, :])
 		Sqs = Float32.(circshift(A, (Nx ÷ 2, Ny ÷ 2)))
 		push!(out, TResult(; hist=tr.hist, seed=tr.seed, b=b, θ=θ, bidx=tr.bidx[p], tidx=tr.tidx[p],
+			a=tr.a, aidx=tr.aidx,
 			e=se.mean, e_err=se.err, tau_e=se.tau, neff_e=se.neff,
 			e_ex=mean_of(ts_ex), e_dm=mean_of(ts_dm), e_b=mean_of(ts_b), e_k=mean_of(ts_k),
-			cV=m.N*var_of(ts_e)/θ^2,
-			mz=smz.mean, mz_err=smz.err, tau_mz=smz.tau, chi=m.N*var_of(ts_mz)/θ,
+			cV=m.N^2/m.Nfree*var_of(ts_e)/θ^2,                 # e is per box site; fluctuations live on N_free spins
+			mz=smz.mean, mz_err=smz.err, tau_mz=smz.tau, chi=m.Nfree*var_of(ts_mz)/θ,
 			mperp=mean_of(ts_mperp), sz2=mean_of(ts_sz2),
 			Q=sQ.mean, Q_err=sQ.err, Q_std=Qstd, tau_Q=sQ.tau, neff_Q=sQ.neff, absQ=mean_of(abs.(ts_Q)),
 			nsk=nsk, psi6=psi6, psi6_local=psi6l, R_eff=R_eff,
@@ -1087,9 +1262,9 @@ function run_all(trajs, cfg, th::Thresholds)
 			lock(PRINT_LOCK) do
 				tr = trajs[k]
 				last = results[k][end]
-				@printf("  [%3d/%3d] %-10s seed %d  %s = %.3f  done in %.0f s total (ETA %.0f s)  last: θ=%.3g e=%.4f Q=%.1f %s\n",
+				@printf("  [%3d/%3d] %-10s seed %d  %s = %.3f  a = %.3f  done in %.0f s total (ETA %.0f s)  last: θ=%.3g e=%.4f Q=%.1f %s\n",
 					n, ntraj, tr.hist, tr.seed, tr.ladder == :temperature ? "b" : "θ",
-					tr.ladder == :temperature ? tr.points[1][1] : tr.points[1][2],
+					tr.ladder == :temperature ? tr.points[1][1] : tr.points[1][2], tr.a,
 					el, el/n*(ntraj - n), last.θ, last.e, last.Q, last.label)
 				flush(stdout)
 			end
@@ -1134,6 +1309,36 @@ function combine_cells(results, nb, nθ, resolve::String)
 	cells
 end
 
+"""(b, a) diagram at the lowest θ of the ladder (scan ba): cells[ia, j] from the records with tidx == nθ."""
+function combine_cells_ba(results, nb, na, nθ, resolve::String)
+	cells = Matrix{Cell}(undef, na, nb)
+	bucket = [TResult[] for _ in 1:na, _ in 1:nb]
+	for res in results, r in res
+		r.tidx == nθ && push!(bucket[r.aidx, r.bidx], r)
+	end
+	for j in 1:nb, ia in 1:na
+		recs = bucket[ia, j]
+		if isempty(recs)
+			cells[ia, j] = Cell(recs, UNRESOLVED, UNRESOLVED, false); continue
+		end
+		ids = [label_id(r.label) for r in recs]
+		agree = length(unique(phase_class.(ids))) == 1
+		lowE = ids[argmin([r.e for r in recs])]
+		final = agree ? ids[1] : (resolve == "energy" ? lowE : UNRESOLVED)
+		cells[ia, j] = Cell(recs, final, lowE, agree)
+	end
+	cells
+end
+
+"""The record that decided each cell: the lowest-⟨E⟩ one where histories disagree, else the first."""
+function chosen_record(c::Cell)
+	isempty(c.recs) && return nothing
+	c.agree ? c.recs[1] : c.recs[argmin([r.e for r in c.recs])]
+end
+
+"""Record of one history in a cell (nothing if absent)."""
+history_record(c::Cell, hist) = (k = findfirst(r -> r.hist == hist && r.seed == 1, c.recs); k === nothing ? nothing : c.recs[k])
+
 # ---------------------------------------------------------------------------
 # Output files (Sec. 14)
 # ---------------------------------------------------------------------------
@@ -1141,7 +1346,7 @@ fmt(x) = isnan(x) ? "nan" : @sprintf("%.6g", x)
 
 function write_summaries(path, results)
 	open(path, "w") do io
-		println(io, "history,seed,b,theta,label,e,e_err,tau_e,neff_e,e_exchange,e_dmi,e_field,e_aniso,cV," *
+		println(io, "history,seed,b,a,theta,label,e,e_err,tau_e,neff_e,e_exchange,e_dmi,e_field,e_aniso,cV," *
 			"mz,mz_err,tau_mz,chi_z,mperp,sz2,Q,Q_err,Q_std,tau_Q,neff_Q,absQ,n_cores,psi6,psi6_local,R_eff," *
 			"P1,P2,P3,q1x,q1y,qnorm,lambda_sites,lambda_lD,ndom,sixfold,square,acc,delta,energy_check,degenerate_frac," *
 			"drift_ok,rho,rho_quench,Q_quench")
@@ -1149,7 +1354,8 @@ function write_summaries(path, results)
 			vals = (r.e, r.e_err, r.tau_e, r.neff_e, r.e_ex, r.e_dm, r.e_b, r.e_k, r.cV,
 				r.mz, r.mz_err, r.tau_mz, r.chi, r.mperp, r.sz2, r.Q, r.Q_err, r.Q_std, r.tau_Q, r.neff_Q, r.absQ,
 				r.nsk, r.psi6, r.psi6_local, r.R_eff, r.P1, r.P2, r.P3, r.q1x, r.q1y, r.qnorm, r.λ_sites, r.λ_lD)
-			print(io, r.hist, ",", r.seed, ",", @sprintf("%.6f", r.b), ",", @sprintf("%.6g", r.θ), ",", r.label)
+			print(io, r.hist, ",", r.seed, ",", @sprintf("%.6f", r.b), ",", @sprintf("%.6f", r.a), ",",
+				@sprintf("%.6g", r.θ), ",", r.label)
 			for v in vals
 				print(io, ",", fmt(v))
 			end
@@ -1175,28 +1381,55 @@ function write_phase_csv(path, cells, bs, θs, m0::Model)
 	println("Wrote ", path)
 end
 
+"""
+(b, a) diagram CSV (scan ba, Sec. 15.5). Besides the cell label, the quench results of the skyrmion-seeded
+history (heat-skx, seed 1): rho_quench_skx < 0 with Q_quench_skx ≈ −1 means the relaxed skyrmion beats the
+polarized disk at T = 0, the lattice analogue of ρ_C < 0 in phase_diagram_ba.jl.
+"""
+function write_phase_csv_ba(path, cells, bs, as, θ)
+	open(path, "w") do io
+		println(io, "b,a,theta,label_id,label,agree,lowest_energy_label,n_records,labels,e_min,Q_chosen,mz_chosen," *
+			"rho_chosen,rho_quench_skx,Q_quench_skx,rho_quench_min,Q_quench_min_label")
+		for j in eachindex(bs), ia in eachindex(as)
+			c = cells[ia, j]
+			labs = join([LABEL_CHARS[label_id(r.label)] for r in c.recs])
+			ch = chosen_record(c); sk = history_record(c, "heat-skx")
+			qrecs = filter(r -> !isnan(r.ρ_quench), c.recs)
+			qmin = isempty(qrecs) ? nothing : qrecs[argmin([r.ρ_quench for r in qrecs])]
+			@printf(io, "%.6f,%.6f,%.6g,%d,%s,%s,%s,%d,%s,%s,%s,%s,%s,%s,%s,%s,%s\n", bs[j], as[ia], θ,
+				c.final_id, LABELS[c.final_id], c.agree, LABELS[c.lowE_id], length(c.recs), labs,
+				fmt(ch === nothing ? NaN : minimum(r.e for r in c.recs)),
+				fmt(ch === nothing ? NaN : ch.Q), fmt(ch === nothing ? NaN : ch.mz), fmt(ch === nothing ? NaN : ch.ρ),
+				fmt(sk === nothing ? NaN : sk.ρ_quench), fmt(sk === nothing ? NaN : sk.Q_quench),
+				fmt(qmin === nothing ? NaN : qmin.ρ_quench), qmin === nothing ? "" : qmin.label)
+		end
+	end
+	println("Wrote ", path)
+end
+
 function write_timeseries(path, results)
 	open(path, "w") do io
-		println(io, "history,seed,b,theta,sweep,e,mz,Q")
+		println(io, "history,seed,b,a,theta,sweep,e,mz,Q")
 		for res in results, r in res
 			qd = Dict(zip(r.ts_Qsweep, r.ts_Q))
 			for (s, e, mz) in zip(r.ts_sweep, r.ts_e, r.ts_mz)
 				q = get(qd, s, NaN)
-				@printf(io, "%s,%d,%.6f,%.6g,%d,%.8f,%.6f,%s\n", r.hist, r.seed, r.b, r.θ, s, e, mz, fmt(q))
+				@printf(io, "%s,%d,%.6f,%.6f,%.6g,%d,%.8f,%.6f,%s\n", r.hist, r.seed, r.b, r.a, r.θ, s, e, mz, fmt(q))
 			end
 		end
 	end
 	println("Wrote ", path)
 end
 
-function write_snapshots(dir, results)
+function write_snapshots(dir, results; with_a::Bool=false)
 	mkpath(dir)
 	n = 0
 	for res in results, r in res
 		isempty(r.Sfull) && continue
-		name = @sprintf("spins_%s_s%d_b%.3f_theta%.4g.csv", r.hist, r.seed, r.b, r.θ)
+		name = with_a ? @sprintf("spins_%s_s%d_b%.3f_a%.3f_theta%.4g.csv", r.hist, r.seed, r.b, r.a, r.θ) :
+		                @sprintf("spins_%s_s%d_b%.3f_theta%.4g.csv", r.hist, r.seed, r.b, r.θ)
 		open(joinpath(dir, name), "w") do io
-			println(io, "# history=", r.hist, " seed=", r.seed, " b=", r.b, " theta=", r.θ, " label=", r.label,
+			println(io, "# history=", r.hist, " seed=", r.seed, " b=", r.b, " a=", r.a, " theta=", r.θ, " label=", r.label,
 				" Q=", r.Q, " e=", r.e)
 			println(io, "i,j,Sx,Sy,Sz")
 			Nx = size(r.Sfull, 2); Ny = size(r.Sfull, 3)
@@ -1217,7 +1450,7 @@ function git_revision()
 	end
 end
 
-function write_metadata(path, o, cfg, bs, θs, trajs, elapsed, inner, nworkers, m0::Model)
+function write_metadata(path, o, cfg, bs, as, θs, trajs, elapsed, inner, nworkers, m0::Model)
 	open(path, "w") do io
 		println(io, "# monte_carlo_2d.jl run metadata (Sec. 14)")
 		println(io, "script = \"monte_carlo_2d.jl\"")
@@ -1232,17 +1465,26 @@ function write_metadata(path, o, cfg, bs, θs, trajs, elapsed, inner, nworkers, 
 		println(io, "command_line = \"", join(ARGS, " "), "\"")
 		println(io)
 		println(io, "[model]")
-		println(io, "a = ", cfg.a); println(io, "h = ", cfg.h)
+		println(io, "geometry = \"", o["geometry"], "\"")
+		println(io, "scan = \"", o["scan"], "\"")
+		println(io, "a = ", cfg.a, o["scan"] == "ba" ? "   # scanned, see [grid]" : ""); println(io, "h = ", cfg.h)
 		println(io, "J_lat = ", m0.J); println(io, "D_lat = ", m0.D)
-		println(io, "B_lat_per_b = ", m0.J*cfg.h^2, "   # B_lat = b h²"); println(io, "K_lat = ", m0.K)
+		println(io, "B_lat_per_b = ", m0.J*cfg.h^2, "   # B_lat = b h²"); println(io, "K_lat_per_a = ", m0.J*cfg.h^2, "   # K_lat = a h²")
 		println(io, "Nx = ", cfg.Nx); println(io, "Ny = ", cfg.Ny)
 		println(io, "Lx = ", cfg.Nx*cfg.h); println(io, "Ly = ", cfg.Ny*cfg.h)
+		if is_disk(m0)
+			println(io, "R = ", m0.R, "   # disk radius, units of l_D; free sites r <= R/h = ", m0.R/m0.h, " around the box centre")
+			println(io, "N_free = ", m0.Nfree, "   # free spins; the other ", m0.N - m0.Nfree, " are frozen at +z (Dirichlet rim)")
+			println(io, "R_eff = ", disk_R_eff(m0), "   # sqrt(N_free h^2 / pi)")
+		end
 		println(io, "temperature_unit = \"theta = k_B T / J_lat\"")
-		println(io, "energy_density_unit = \"rho = (H/N + 2 J_lat + B_lat)/(J_lat h^2), D_c^2/J_c units, relative to saturation\"")
+		println(io, "energy_density_unit = \"rho = (H - H_sat)/(N_free h^2 J_lat), D_c^2/J_c units, relative to saturation\"")
 		println(io)
 		println(io, "[grid]")
 		println(io, "b = [", join(fmt.(bs), ", "), "]")
-		println(io, "theta = [", join(fmt.(θs), ", "), "]   # visiting order of cooling runs")
+		println(io, "a = [", join(fmt.(as), ", "), "]")
+		println(io, "theta = [", join(fmt.(θs), ", "), "]   # visiting order of cooling runs",
+			o["scan"] == "ba" ? "; the (b, a) diagram is taken at the last value" : "")
 		println(io, "ladder = \"", o["ladder"], "\"")
 		println(io)
 		println(io, "[sampling]")
@@ -1263,7 +1505,7 @@ function write_metadata(path, o, cfg, bs, θs, trajs, elapsed, inner, nworkers, 
 		println(io, "precision = \"Float64\"")
 		println(io)
 		println(io, "[classification]")
-		for k in ("peak_min", "mz_pol", "qmin", "psi6_min", "dom_frac", "angle_tol", "s_core", "qcore_min")
+		for k in ("peak_min", "mz_pol", "qmin", "psi6_min", "dom_frac", "angle_tol", "s_core", "qcore_min", "qsk_min", "qstd_max")
 			println(io, k, " = ", o[k])
 		end
 		println(io, "resolve = \"", o["resolve"], "\"")
@@ -1290,6 +1532,25 @@ function print_text_diagram(cells, bs, θs)
 	@printf("  %-9s b=%.2f … %.2f\n", "", bs[1], bs[end])
 end
 
+"""(b, a) diagram as text: rows b descending, columns a ascending (the orientation of phase_diagram_ba.jl)."""
+function print_text_diagram_ba(cells, bs, as, θ)
+	println("\nPhase diagram at θ = ", fmt(θ), " (rows b descending, columns a ascending): ",
+		join(["$(LABEL_CHARS[i])=$(LABELS[i])" for i in 1:NLABELS], ", "))
+	println("  after '|': '.' histories/seeds agree, 'x' they disagree (see --resolve)")
+	for j in reverse(eachindex(bs))
+		@printf("  b=%-7.3f ", bs[j])
+		for ia in eachindex(as)
+			print(LABEL_CHARS[cells[ia, j].final_id])
+		end
+		print(" | ")
+		for ia in eachindex(as)
+			print(cells[ia, j].agree ? '.' : 'x')
+		end
+		println()
+	end
+	@printf("  %-9s a=%.2f … %.2f\n", "", as[1], as[end])
+end
+
 # ---------------------------------------------------------------------------
 # Plots (Sec. 7.5, 14)
 # ---------------------------------------------------------------------------
@@ -1304,6 +1565,21 @@ function cell_edges(v)
 	e
 end
 
+"""
+    figure_title!(p, title; fontsize=10)
+
+Title spanning the whole figure (`plot_title`), added after all panels and series exist.
+Two Plots 1.41 / GR quirks are worked around: subplot attributes passed in the same call
+as `plot_title` are also applied to the invisible title subplot (a `framestyle=:box` would
+frame it), and that subplot reserves room for y-tick labels it never draws, which widens
+the first column of the grid below it (white bands beside `aspect_ratio = 1` heatmaps).
+"""
+function figure_title!(p, title; fontsize=10)
+	plot!(p; plot_title=title, plot_titlefontsize=fontsize)
+	plot!(p; subplot=p[:plot_titleindex], ticks=false)
+	p
+end
+
 function save_phase_plot(path, cells, bs, θs, cfg, o)
 	ylog = o["ladder"] == "geometric" && length(θs) > 1
 	θa = reverse(θs); ya = ylog ? log10.(θa) : θa              # ascending θ
@@ -1311,8 +1587,11 @@ function save_phase_plot(path, cells, bs, θs, cfg, o)
 	nθ = length(θs); nb = length(bs)
 	title = @sprintf("Monte Carlo phases: a = %.2f, h = %.2g, %d × %d, histories %s × %d seed(s)",
 		cfg.a, cfg.h, cfg.Nx, cfg.Ny, join(o["histories"], "+"), o["nseeds"])
-	p = plot(; xlabel="b = B J_c / D_c²", ylabel="θ = k_B T / J_lat", title=title, titlefontsize=9,
+	# GR under-estimates the room needed for the rotated y-label, so without an explicit
+	# margin "θ = k_B T / J_lat" is clipped at the left edge of the PNG.
+	p = plot(; xlabel="b = B J_c / D_c²", ylabel="θ = k_B T / J_lat",
 		framestyle=:box, size=(960, 600), dpi=160, legend=:outertopright,
+		left_margin=6Plots.mm, bottom_margin=3Plots.mm,
 		xlims=(xe[1], xe[end]), ylims=(ye[1], ye[end]))
 	for id in 1:NLABELS
 		shapes = Shape[]
@@ -1346,13 +1625,103 @@ function save_phase_plot(path, cells, bs, θs, cfg, o)
 		ticks = [t for t in (0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5) if ye[1] ≤ log10(t) ≤ ye[end]]
 		plot!(p; yticks=(log10.(ticks), string.(ticks)))
 	end
-	if cfg.a == 0
+	if cfg.a == 0 && cfg.R == 0
 		vline!(p, [0.216, 0.801]; linestyle=:dash, color=:black, linewidth=1,
 			label="continuum T = 0 (a = 0): b₁ ≈ 0.216, b_c ≈ 0.801")
+	elseif cfg.a == 0
+		vline!(p, [0.801]; linestyle=:dash, color=:black, linewidth=1,
+			label="continuum T = 0 (a = 0): optimal-R skyrmion vs FM, b_c ≈ 0.801")
 	end
+	# The title is wider than the plot area (the legend sits outside it), so as a subplot
+	# title it ran off the left edge; a figure-wide title has the full width.
+	figure_title!(p, title; fontsize=9)
 	savefig(p, path)
 	println("Wrote ", path)
 end
+
+"""
+(b, a) diagram of the disk (scan ba): a on the x-axis, b on the y-axis like phase_diagram_ba.jl. Dots mark cells
+where the histories disagree; the dashed curve is the lattice T = 0 boundary ρ_quench(heat-skx) = 0, i.e. where
+the relaxed single skyrmion stops beating the polarized disk (drawn when the quench kept a skyrmion somewhere).
+"""
+function save_phase_plot_ba(path, cells, bs, as, θ, cfg, o, m0::Model)
+	na = length(as); nb = length(bs)
+	xe = cell_edges(as); ye = cell_edges(bs)
+	title = is_disk(m0) ?
+		@sprintf("Pinned-rim disk, θ = k_B T/J = %.3g: R = %.3g ℓ_D (R_eff %.3g), h = %.2g, %d free spins; %s",
+			θ, m0.R, disk_R_eff(m0), cfg.h, m0.Nfree, join(o["histories"], "+")) :
+		@sprintf("Periodic %d × %d, θ = %.3g, h = %.2g; %s", cfg.Nx, cfg.Ny, θ, cfg.h, join(o["histories"], "+"))
+	p = plot(; xlabel="a = K_z J_c / D_c²", ylabel="b = B J_c / D_c²",
+		framestyle=:box, size=(960, 600), dpi=160, legend=:outertopright,
+		left_margin=6Plots.mm, bottom_margin=3Plots.mm,
+		xlims=(xe[1], xe[end]), ylims=(ye[1], ye[end]))
+	for id in 1:NLABELS
+		shapes = Shape[]
+		for j in 1:nb, ia in 1:na
+			cells[ia, j].final_id == id || continue
+			push!(shapes, Shape([xe[ia], xe[ia+1], xe[ia+1], xe[ia]], [ye[j], ye[j], ye[j+1], ye[j+1]]))
+		end
+		isempty(shapes) && continue
+		plot!(p, shapes; fillcolor=RGB(LABEL_RGB[id]...), linecolor=:white, linewidth=0.4, label="")
+		scatter!(p, [NaN], [NaN]; color=RGB(LABEL_RGB[id]...), markershape=:rect, markersize=8,
+			markerstrokewidth=0, label=LABELS[id])
+	end
+	xs = Float64[]; ys = Float64[]
+	for j in 1:nb, ia in 1:na
+		c = cells[ia, j]
+		(!c.agree && !isempty(c.recs)) || continue
+		push!(xs, as[ia]); push!(ys, bs[j])
+	end
+	isempty(xs) || scatter!(p, xs, ys; markercolor=:black, markersize=2.2, markerstrokewidth=0,
+		label=o["resolve"] == "energy" ? "histories disagree (lowest ⟨E⟩ shown)" : "histories disagree (unresolved)")
+	# lattice T = 0 boundary from the quenched skyrmion-seeded history; meaningful only where that history
+	# still held a persistent skyrmion at θ (otherwise the quench starts from a paramagnet)
+	Z = fill(1.0, nb, na); kept = false
+	for j in 1:nb, ia in 1:na
+		sk = history_record(cells[ia, j], "heat-skx")
+		sk === nothing && continue
+		isnan(sk.ρ_quench) && continue
+		Z[j, ia] = sk.ρ_quench
+		sk.label in ("Skyrmion", "Multiple skyrmions") && abs(sk.Q_quench + 1) < 0.1 && (kept = true)
+	end
+	if kept && na > 1 && nb > 1
+		contour!(p, as, bs, Z; levels=[-1e-6], linewidth=1.5, linestyle=:dash, color=:black, colorbar=false, label="")
+		plot!(p, [NaN], [NaN]; linewidth=1.5, linestyle=:dash, color=:black,
+			label="T = 0 lattice boundary: ρ_quench(skyrmion seed) = 0")
+	end
+	figure_title!(p, title; fontsize=9)   # figure-wide title, see save_phase_plot
+	savefig(p, path)
+	println("Wrote ", path)
+end
+
+"""⟨Q⟩ and ⟨m_z⟩ of the record that decided each cell, and the quenched skyrmion density, over (a, b)."""
+function save_ba_maps(path, cells, bs, as, θ)
+	na = length(as); nb = length(bs)
+	Zq = fill(NaN, nb, na); Zm = fill(NaN, nb, na); Zr = fill(NaN, nb, na)
+	for j in 1:nb, ia in 1:na
+		ch = chosen_record(cells[ia, j])
+		ch === nothing && continue
+		Zq[j, ia] = ch.Q; Zm[j, ia] = ch.mz
+		sk = history_record(cells[ia, j], "heat-skx")
+		sk === nothing || (Zr[j, ia] = sk.ρ_quench)
+	end
+	rmax = maximum(abs, filter(!isnan, Zr); init=0.05)
+	panels = [
+		heatmap(as, bs, Zq; c=cgrad(:RdBu, rev=true), clims=(-2, 2), xlabel="a", ylabel="b", title="⟨Q⟩ (chosen record)", titlefontsize=9),
+		heatmap(as, bs, Zm; c=:viridis, clims=(0, 1), xlabel="a", ylabel="b", title="⟨m_z⟩ of the free spins", titlefontsize=9),
+		heatmap(as, bs, Zr; c=cgrad(:RdBu, rev=true), clims=(-rmax, rmax), xlabel="a", ylabel="b",
+			title="ρ_quench(skyrmion seed); < 0: skyrmion beats polarized at T = 0", titlefontsize=9),
+	]
+	# GR sizes the y-label padding from the figure height, so this wide, short figure needs
+	# a larger left margin than the others for the first "b" label not to be clipped
+	p = plot(panels...; layout=(1, 3), size=(1500, 430), dpi=140, left_margin=8Plots.mm, bottom_margin=5Plots.mm)
+	figure_title!(p, @sprintf("θ = %.3g", θ))
+	savefig(p, path)
+	println("Wrote ", path)
+end
+
+"""Chosen records of the (b, a) cells as an (a index, b index) matrix of Union{TResult,Nothing}."""
+chosen_grid(cells) = Union{TResult,Nothing}[chosen_record(c) for c in cells]
 
 """Primary records (first history, seed 1) as a (θ index, b index) matrix of Union{TResult,Nothing}."""
 function primary_grid(results, trajs, nb, nθ)
@@ -1368,7 +1737,7 @@ end
 
 pick_indices(n, k) = n ≤ k ? collect(1:n) : unique(round.(Int, range(1, n; length=k)))
 
-function save_textures(path, g, bs, θs; what=:Sz)
+function save_textures(path, g, bs, θs; what=:Sz, rows=:θ)
 	nθ, nb = size(g)
 	js = pick_indices(nb, 6); ks = pick_indices(nθ, 5)
 	panels = Any[]
@@ -1378,20 +1747,28 @@ function save_textures(path, g, bs, θs; what=:Sz)
 			push!(panels, plot(; axis=false, grid=false)); continue
 		end
 		if what == :Sz
-			ttl = @sprintf("b=%.2f θ=%.3g Q=%.0f %s", r.b, r.θ, r.Q, LABEL_CHARS[label_id(r.label)])
-			push!(panels, heatmap(1:size(r.Sz, 1), 1:size(r.Sz, 2), permutedims(r.Sz); c=cgrad(:RdBu, rev=true), clims=(-1, 1),
-				aspect_ratio=1, colorbar=false, ticks=false, title=ttl, titlefontsize=7, framestyle=:box))
+			ttl = rows == :a ? @sprintf("b=%.2f a=%.2f Q=%.1f %s", r.b, r.a, r.Q, LABEL_CHARS[label_id(r.label)]) :
+			                   @sprintf("b=%.2f θ=%.3g Q=%.0f %s", r.b, r.θ, r.Q, LABEL_CHARS[label_id(r.label)])
+			n1, n2 = size(r.Sz)
+			push!(panels, heatmap(1:n1, 1:n2, permutedims(r.Sz); c=cgrad(:RdBu, rev=true), clims=(-1, 1),
+				aspect_ratio=1, colorbar=false, ticks=false, title=ttl, titlefontsize=7, framestyle=:box,
+				xlims=(0.5, n1 + 0.5), ylims=(0.5, n2 + 0.5)))
 		else
 			Nx, Ny = size(r.Sq)
 			kx = (1:Nx) .- (Nx ÷ 2 + 1); ky = (1:Ny) .- (Ny ÷ 2 + 1)
 			ttl = @sprintf("b=%.2f θ=%.3g P1=%.3f ndom=%d", r.b, r.θ, r.P1, r.ndom)
 			push!(panels, heatmap(kx, ky, permutedims(log10.(r.Sq .+ 1f-9)); c=:viridis, clims=(-6, 0),
-				aspect_ratio=1, colorbar=false, ticks=false, title=ttl, titlefontsize=7, framestyle=:box))
+				aspect_ratio=1, colorbar=false, ticks=false, title=ttl, titlefontsize=7, framestyle=:box,
+				xlims=(kx[1] - 0.5, kx[end] + 0.5), ylims=(ky[1] - 0.5, ky[end] + 0.5)))
 		end
 	end
-	p = plot(panels...; layout=(length(ks), length(js)), size=(230*length(js), 235*length(ks)), dpi=140,
-		plot_title=what == :Sz ? "S_z snapshots (x horizontal, y vertical), primary history" :
-		                         "log10 S(q)/N averaged over snapshots, q = 0 at centre", plot_titlefontsize=10)
+	# explicit limits at the cell edges (both branches): without them Plots widens the x range
+	# to fill the non-square plot area and the heatmap floats between white bands; with them
+	# GR shrinks the frame to a square around the heatmap
+	p = plot(panels...; layout=(length(ks), length(js)), size=(230*length(js), 235*length(ks)), dpi=140)
+	figure_title!(p, what == :Sz ? (rows == :a ? "S_z snapshots (x horizontal, y vertical), record that decided each cell" :
+	                                             "S_z snapshots (x horizontal, y vertical), primary history") :
+	                               "log10 S(q)/N averaged over snapshots, q = 0 at centre")
 	savefig(p, path)
 	println("Wrote ", path)
 end
@@ -1416,8 +1793,9 @@ function save_observables(path, g, bs, θs, o)
 		end
 		push!(panels, p)
 	end
-	p = plot(panels...; layout=(2, 3), size=(1200, 700), dpi=140, plot_title="Primary history vs temperature",
-		plot_titlefontsize=10)
+	# margins: GR clips the outer y-labels ("e / site") and the bottom-row "θ" otherwise
+	p = plot(panels...; layout=(2, 3), size=(1200, 700), dpi=140, left_margin=5Plots.mm, bottom_margin=5Plots.mm)
+	figure_title!(p, "Primary history vs temperature")
 	savefig(p, path)
 	println("Wrote ", path)
 end
@@ -1441,8 +1819,10 @@ function save_convergence(path, g, bs, θs)
 		push!(panels, plot(r.ts_Qsweep, r.ts_Q; xlabel="sweep", ylabel="Q", marker=:circle, markersize=2, legend=false,
 			ylims=(qlo, qhi)))
 	end
+	# margins: GR clips the first-column y-labels ("e / site") otherwise
 	p = plot(panels...; layout=(length(ks), 3), size=(1200, 300*length(ks)), dpi=140,
-		plot_title="Production traces, primary history (τ in measurement intervals)", plot_titlefontsize=10)
+		left_margin=5Plots.mm, bottom_margin=3Plots.mm)
+	figure_title!(p, "Production traces, primary history (τ in measurement intervals)")
 	savefig(p, path)
 	println("Wrote ", path)
 end
@@ -1614,6 +1994,32 @@ function selftest(o)
 	push!(checks, ("T = 0 quench of the seed at b = 0.6 lowers E and keeps Q = −nx·my", Eq < E0 && abs(Qq + nx*my) < 1e-8,
 		@sprintf("ρ: %.4f → %.4f, Q = %.3f", rho_continuum(E0/m2b.N, m2b), rho_continuum(Eq/m2b.N, m2b), Qq)))
 
+	# 9. pinned-rim disk (Sec. 15.5)
+	Rb = 4.018913753672924; ρC = -0.0691244243113868          # Mathematica benchmark at b = 0.6, a = 0 (CLAUDE.md)
+	Nd = disk_box(Rb, 0.25)
+	md = Model(Nd, Nd; h=0.25, b=0.6, R=Rb)
+	Sd = zeros(3, Nd, Nd); Sd[3, :, :] .= 1.0
+	ρpol = rho_continuum(total_energy(Sd, md)/md.N, md)
+	random_spins!(Sd, Xoshiro(3)); freeze!(Sd, md)
+	spd = Sampler([Xoshiro(4)], [1:Nd], :checkerboard, 1.0, 0.05, total_energy(Sd, md), 0, 0)
+	for _ in 1:100; sweep!(Sd, md, spd, 1/0.5); end
+	rim_ok = all(Sd[1,i,j] == 0.0 && Sd[2,i,j] == 0.0 && Sd[3,i,j] == 1.0 for j in 1:Nd, i in 1:Nd if !md.free[i,j])
+	ecache = abs(spd.E - total_energy(Sd, md))
+	Qd, _ = charge_map!(zeros(Nd, Nd), Sd, md)
+	push!(checks, ("Disk: rim frozen after 100 sweeps, N_free attempts per sweep, energy cache exact, integer Q",
+		rim_ok && spd.natt == 100md.Nfree && ecache < 1e-8 && abs(Qd - round(Qd)) < 1e-8,
+		@sprintf("%d free of %d, natt = %d, |ΔE| = %.1e, Q = %.6f", md.Nfree, md.N, spd.natt, ecache, Qd)))
+	push!(checks, ("Disk: polarized disk has ρ = 0 exactly", abs(ρpol) < 1e-12, @sprintf("ρ = %.1e", ρpol)))
+	bloch_seed!(Sd, md; R0=md.R/md.h, center=(md.cx, md.cy)); freeze!(Sd, md)
+	Qb, _ = charge_map!(zeros(Nd, Nd), Sd, md)
+	spq = Sampler([Xoshiro(5)], [1:Nd], :checkerboard, 0.3, 0.05, total_energy(Sd, md), 0, 0)
+	Eq = quench!(Sd, md, spq, 3000)
+	ρq = rho_continuum(Eq/md.N, md)
+	Qq, _ = charge_map!(zeros(Nd, Nd), Sd, md)
+	push!(checks, ("Disk: quenched Bloch seed at b = 0.6, R = R₀, h = 0.25 keeps Q = −1, ρ within 3% of continuum ρ_C",
+		abs(Qb + 1) < 1e-8 && abs(Qq + 1) < 1e-8 && abs(ρq - ρC) < 0.03*abs(ρC),
+		@sprintf("ρ = %.5f vs ρ_C = %.5f (%.2f%%), R_eff = %.4f, Q = %.3f", ρq, ρC, 100*(ρq - ρC)/abs(ρC), disk_R_eff(md), Qq)))
+
 	println("\nSelf-test (README_monte_carlo_2d.md Sec. 13.2)")
 	println("-"^100)
 	nfail = 0
@@ -1657,42 +2063,58 @@ function main(o)
 	if o["bench"]
 		bench(o); exit(0)
 	end
+	scan_ba = o["scan"] == "ba"
+	disk = o["geometry"] == "disk"
 	bs = o["b"] !== nothing ? [o["b"]] : axis_grid(o["bmin"], o["bmax"]; n=o["nb"], step=o["db"])
 	θs = o["theta"] !== nothing ? [o["theta"]] : temperature_ladder(o["theta_max"], o["theta_min"], o["ntheta"], o["ladder"])
-	cfg = (; Nx=o["Nx"], Ny=o["Ny"], h=o["h"], a=o["a"], seed=o["seed"], site_order=o["site_order"], inner=o["inner"],
-		pfull=o["pfull"], neq=o["neq"], nprod=o["nprod"], nadapt=o["nadapt"], final_factor=o["final_factor"],
+	as = scan_ba ? axis_grid(o["amin"], o["amax"]; n=o["na"], step=o["da"]) : [o["a"]]
+	cfg = (; Nx=o["Nx"], Ny=o["Ny"], h=o["h"], a=as[1], R=disk ? o["R"] : 0.0, seed=o["seed"], site_order=o["site_order"],
+		inner=o["inner"], pfull=o["pfull"], neq=o["neq"], nprod=o["nprod"], nadapt=o["nadapt"], final_factor=o["final_factor"],
 		nquench=o["nquench"], nmeas=o["nmeas"], nstruct=o["nstruct"], helix_n=o["helix_n"], skx_nx=o["skx_nx"], skx_my=o["skx_my"])
 	th = Thresholds(o["peak_min"], o["mz_pol"], o["qmin"], o["psi6_min"], o["dom_frac"], deg2rad(o["angle_tol"]),
-		o["s_core"], o["qcore_min"])
-	trajs = build_trajectories(o["histories"], o["nseeds"], bs, θs)
-	m0 = Model(cfg.Nx, cfg.Ny; h=cfg.h, b=bs[1], a=cfg.a)
-	run_id = isempty(o["run_id"]) ?
-		@sprintf("a%s_h%s_L%dx%d_%s", replace(string(cfg.a), "." => "p"), replace(string(cfg.h), "." => "p"),
-			cfg.Nx, cfg.Ny, Dates.format(now(), "yyyymmdd-HHMMSS")) : o["run_id"]
+		o["s_core"], o["qcore_min"], o["qsk_min"], o["qstd_max"])
+	trajs = build_trajectories(o["histories"], o["nseeds"], bs, θs, as; scan_ba=scan_ba)
+	m0 = Model(cfg.Nx, cfg.Ny; h=cfg.h, b=bs[1], a=cfg.a, R=cfg.R)
+	pstr(x) = replace(string(x), "." => "p")
+	run_id = !isempty(o["run_id"]) ? o["run_id"] :
+		disk ? @sprintf("disk_R%s_theta%s_h%s_%s", pstr(cfg.R), pstr(θs[end]), pstr(cfg.h), Dates.format(now(), "yyyymmdd-HHMMSS")) :
+		       @sprintf("a%s_h%s_L%dx%d_%s", pstr(cfg.a), pstr(cfg.h), cfg.Nx, cfg.Ny, Dates.format(now(), "yyyymmdd-HHMMSS"))
 	outdir = joinpath(o["outdir"], run_id)
 	mkpath(outdir); mkpath(joinpath(outdir, "plots"))
 
 	println("monte_carlo_2d.jl — Metropolis Monte Carlo of the 2D chiral magnet (README_monte_carlo_2d.md)")
 	println("Started ", now())
-	@printf("Model: a = %.3f, h = %.3g, lattice %d × %d (L = %.1f × %.1f ℓ_D), J = 1, D = %.3g, K = %.3g, B = b·%.3g\n",
-		cfg.a, cfg.h, cfg.Nx, cfg.Ny, cfg.Nx*cfg.h, cfg.Ny*cfg.h, m0.D, m0.K, m0.J*cfg.h^2)
-	@printf("Lattice helix wavelength: %.2f sites (axial seed n = %d → %.2f sites); triple-q seed cells %d × %d = %d skyrmions\n",
-		2π/atan(m0.D/m0.J), best_helix_n(m0), cfg.Nx/best_helix_n(m0), default_skx_cells(m0)..., prod(default_skx_cells(m0)))
-	@printf("Grid: b = %s … %s (%d), θ = %s … %s (%d, %s ladder); histories %s × %d seed(s) → %d trajectories, %d grid points\n",
-		fmt(bs[1]), fmt(bs[end]), length(bs), fmt(θs[1]), fmt(θs[end]), length(θs), o["ladder"],
-		join(o["histories"], ","), o["nseeds"], length(trajs), length(bs)*length(θs))
+	@printf("Model: %s, h = %.3g, lattice %d × %d (L = %.1f × %.1f ℓ_D), J = 1, D = %.3g, K = a·%.3g, B = b·%.3g\n",
+		scan_ba ? "a scanned" : @sprintf("a = %.3f", cfg.a), cfg.h, cfg.Nx, cfg.Ny, cfg.Nx*cfg.h, cfg.Ny*cfg.h,
+		m0.D, m0.J*cfg.h^2, m0.J*cfg.h^2)
+	if disk
+		@printf("Disk: R = %.4g ℓ_D = %.2f sites, %d free spins (R_eff = %.4g from the area), %d frozen at +z (pinned rim)\n",
+			m0.R, m0.R/m0.h, m0.Nfree, disk_R_eff(m0), m0.N - m0.Nfree)
+	else
+		@printf("Lattice helix wavelength: %.2f sites (axial seed n = %d → %.2f sites); triple-q seed cells %d × %d = %d skyrmions\n",
+			2π/atan(m0.D/m0.J), best_helix_n(m0), cfg.Nx/best_helix_n(m0), default_skx_cells(m0)..., prod(default_skx_cells(m0)))
+	end
+	@printf("Grid: b = %s … %s (%d), a = %s … %s (%d), θ = %s … %s (%d, %s ladder); histories %s × %d seed(s) → %d trajectories, %d grid points\n",
+		fmt(bs[1]), fmt(bs[end]), length(bs), fmt(as[1]), fmt(as[end]), length(as), fmt(θs[1]), fmt(θs[end]), length(θs), o["ladder"],
+		join(o["histories"], ","), o["nseeds"], length(trajs), scan_ba ? length(bs)*length(as) : length(bs)*length(θs))
+	scan_ba && println("Scan ba: the (b, a) diagram is taken at θ = ", fmt(θs[end]),
+		length(θs) > 1 ? " after annealing the cooling histories down the ladder" : "")
 	@printf("Budget per point: %d equilibration (%d adaptation) + %d production sweeps; measurements every %d, structure every %d; final factor %d; quench %d\n",
 		cfg.neq, cfg.nadapt, cfg.nprod, cfg.nmeas, cfg.nstruct, cfg.final_factor, cfg.nquench)
-	@printf("Total attempted updates ≈ %.3g\n",
-		sum(length(tr.points) for tr in trajs)*(cfg.neq + cfg.nprod)*cfg.Nx*cfg.Ny*1.0)
+	natt_total = sum(length(tr.points) for tr in trajs)*(cfg.neq + cfg.nprod)*m0.Nfree*1.0
+	@printf("Total attempted updates ≈ %.3g\n", natt_total)
 	println("Output: ", outdir)
 
 	results, elapsed, inner, nworkers = run_all(trajs, cfg, th)
-	@printf("All trajectories finished in %.1f s (%.2f M attempts/s aggregate)\n", elapsed,
-		sum(length(tr.points) for tr in trajs)*(cfg.neq + cfg.nprod)*cfg.Nx*cfg.Ny/elapsed/1e6)
+	@printf("All trajectories finished in %.1f s (%.2f M attempts/s aggregate)\n", elapsed, natt_total/elapsed/1e6)
 
-	cells = combine_cells(results, length(bs), length(θs), o["resolve"])
-	print_text_diagram(cells, bs, θs)
+	if scan_ba
+		cells = combine_cells_ba(results, length(bs), length(as), length(θs), o["resolve"])
+		print_text_diagram_ba(cells, bs, as, θs[end])
+	else
+		cells = combine_cells(results, length(bs), length(θs), o["resolve"])
+		print_text_diagram(cells, bs, θs)
+	end
 	println("\nLabel counts on the grid:")
 	for id in 1:NLABELS
 		n = count(c -> c.final_id == id, cells)
@@ -1701,7 +2123,7 @@ function main(o)
 	nd = count(c -> !isempty(c.recs) && any(r -> !r.drift_ok, c.recs), cells)
 	@printf("Cells with a drifting production trace in some history: %d of %d (see drift_ok in summaries.csv)\n",
 		nd, length(cells))
-	if length(θs) ≥ 1
+	if !scan_ba
 		println("\nLowest temperature θ = ", fmt(θs[end]), ": continuum-scaled energy densities ρ (D_c²/J_c, relative to saturation)")
 		@printf("  %-6s %-10s %-6s %-10s %-10s %-10s %-8s %s\n", "b", "history", "seed", "⟨ρ⟩", "ρ_quench", "ρ_helix", "Q", "label")
 		for res in results, r in res
@@ -1709,22 +2131,44 @@ function main(o)
 			@printf("  %-6.3f %-10s %-6d %-10.4f %-10.4f %-10.4f %-8.1f %s\n", r.b, r.hist, r.seed, r.ρ, r.ρ_quench,
 				-0.5 + r.b + cfg.a/2, r.Q, r.label)
 		end
+	elseif length(as) ≥ 1
+		ia = 1
+		println("\nRow a = ", fmt(as[ia]), " at θ = ", fmt(θs[end]), ": ⟨ρ⟩, quench results (D_c²/J_c, relative to saturation) per history")
+		@printf("  %-6s %-10s %-10s %-10s %-8s %-8s %-8s %s\n", "b", "history", "⟨ρ⟩", "ρ_quench", "Q_quench", "⟨Q⟩", "⟨m_z⟩", "label")
+		for j in eachindex(bs), r in cells[ia, j].recs
+			r.seed == 1 || continue
+			@printf("  %-6.3f %-10s %-10.4f %-10.4f %-8.2f %-8.2f %-8.3f %s\n", r.b, r.hist, r.ρ, r.ρ_quench, r.Q_quench, r.Q, r.mz, r.label)
+		end
 	end
 
 	write_summaries(joinpath(outdir, "summaries.csv"), results)
-	write_phase_csv(joinpath(outdir, "phase_diagram.csv"), cells, bs, θs, m0)
+	if scan_ba
+		write_phase_csv_ba(joinpath(outdir, "phase_diagram.csv"), cells, bs, as, θs[end])
+	else
+		write_phase_csv(joinpath(outdir, "phase_diagram.csv"), cells, bs, θs, m0)
+	end
 	o["timeseries"] && write_timeseries(joinpath(outdir, "observables.csv"), results)
-	o["snapshots"] && write_snapshots(joinpath(outdir, "snapshots"), results)
-	write_metadata(joinpath(outdir, "metadata.toml"), o, cfg, bs, θs, trajs, elapsed, inner, nworkers, m0)
+	o["snapshots"] && write_snapshots(joinpath(outdir, "snapshots"), results; with_a=scan_ba)
+	write_metadata(joinpath(outdir, "metadata.toml"), o, cfg, bs, as, θs, trajs, elapsed, inner, nworkers, m0)
 	if o["plots"] && NEED_PLOTS
-		g = primary_grid(results, trajs, length(bs), length(θs))
-		save_phase_plot(joinpath(outdir, "plots", "phase_diagram.png"), cells, bs, θs, cfg, o)
-		save_textures(joinpath(outdir, "plots", "spin_textures.png"), g, bs, θs; what=:Sz)
-		save_textures(joinpath(outdir, "plots", "structure_factors.png"), g, bs, θs; what=:Sq)
-		save_observables(joinpath(outdir, "plots", "observables.png"), g, bs, θs, o)
-		save_convergence(joinpath(outdir, "plots", "convergence.png"), g, bs, θs)
+		if scan_ba
+			g = chosen_grid(cells)
+			save_phase_plot_ba(joinpath(outdir, "plots", "phase_diagram.png"), cells, bs, as, θs[end], cfg, o, m0)
+			save_textures(joinpath(outdir, "plots", "spin_textures.png"), g, bs, as; what=:Sz, rows=:a)
+			save_ba_maps(joinpath(outdir, "plots", "observable_maps.png"), cells, bs, as, θs[end])
+		else
+			g = primary_grid(results, trajs, length(bs), length(θs))
+			save_phase_plot(joinpath(outdir, "plots", "phase_diagram.png"), cells, bs, θs, cfg, o)
+			save_textures(joinpath(outdir, "plots", "spin_textures.png"), g, bs, θs; what=:Sz)
+			save_textures(joinpath(outdir, "plots", "structure_factors.png"), g, bs, θs; what=:Sq)
+			save_observables(joinpath(outdir, "plots", "observables.png"), g, bs, θs, o)
+			save_convergence(joinpath(outdir, "plots", "convergence.png"), g, bs, θs)
+		end
 	end
 	println("Done ", now())
 end
 
-main(parse_args(ARGS))
+# Run only as a script; `include("monte_carlo_2d.jl")` just loads the definitions.
+if abspath(PROGRAM_FILE) == @__FILE__
+	main(parse_args(ARGS))
+end
