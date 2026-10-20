@@ -457,6 +457,10 @@ function save_phase_plot(diag, outpath; R)
 		framestyle=:box,
 		size=(860, 560),
 		dpi=160,
+		# GR under-estimates the room needed for the rotated y-label, so without an
+		# explicit margin "b = B C / D²" is clipped at the left edge of the PNG.
+		left_margin=6Plots.mm,
+		bottom_margin=3Plots.mm,
 		legend=:outertopright)
 	for (k, lab) in enumerate(labels)
 		# only show states that appear on the grid
