@@ -1,35 +1,36 @@
 # Skyrmion crystal calculations
 
-[Skyrmions_Aristov_Tsypilnikov.nb](Skyrmions_Aristov_Tsypilnikov.nb) is the canonical, self-contained Mathematica notebook for D. N. Aristov and A. V. Tsypilnikov, [*Magnon spectrum in two- and three-dimensional skyrmion crystals*](https://arxiv.org/abs/1705.00196v1).
+- [`Skyrmions_Aristov_Tsypilnikov.nb`](Skyrmions_Aristov_Tsypilnikov.nb) — Mathematica notebook for [Aristov–Tsypilnikov](https://arxiv.org/abs/1705.00196). Evaluate the notebook in a fresh kernel. Older notebooks are in [`archive/`](archive/).
+- [`Skyrmions_Pires_classical.jl`](Skyrmions_Pires_classical.jl) — Pluto notebook for the classical model of [Pires](https://arxiv.org/abs/2610.23490).
+- [`Skyrmions_anisotropy_classical.jl`](Skyrmions_anisotropy_classical.jl) — same model with easy-axis anisotropy.
+- [`phase_diagram_ba.jl`](phase_diagram_ba.jl) — classical `(b, a)` ground-state diagram at fixed skyrmion radius (`J = D = 1`).
+- [`monte_carlo_2d.jl`](monte_carlo_2d.jl) — Metropolis Monte Carlo of the same model on a periodic lattice and its `(b, θ)` phase diagram at fixed anisotropy; method in [`README_monte_carlo_2d.md`](README_monte_carlo_2d.md).
 
-The notebook contains 27 evaluated code cells, definitions, numerical data, plots, and checks. Open it in a modern Mathematica installation, start a fresh kernel, and select **Evaluation → Evaluate Notebook**. It needs no external data, packages, or definitions from the historical notebooks. The full serial run takes tens of minutes; Wolfram Engine can also evaluate its Wolfram Language calculations.
+## Pluto
 
-The default calculation uses dimensionless units, no anisotropy, reference field `b = 0.6`, 24-digit working precision for the profile boundary-value problem, 40 radial basis functions, 320 quadrature points, and angular cutoff `|m| ≤ 8`. These settings are explicit and editable in the notebook.
-
-The notebook covers the equations and numerical constructions underlying Figures 1–11:
-
-- Exact spin commutators, direct continuum spin-wave Hessian, classical energy, Euler–Lagrange equation, topology, optimized texture, disk/hexagon geometry, energy-density scans, and optimal radius versus field.
-- Bosonic disk spectrum, angular and radial modes, radius dependence, and the signed instability of the `m = −2` mode.
-- Finite-cutoff zero-point energy, spin-dependent energy density, conical-spiral comparison, and local quantum spin reduction.
-- Two-component boundary matching, tunneling estimates, triangular-lattice bands, and the three-dimensional and thermal extensions.
-
-The implementation corrects the historical anomalous matrix construction, mode normalization, quantum-energy counting, and basis truncation checks. It uses Appendix B's anomalous-coupling sign consistently, documents its difference from Eq. (11), includes the angular normalization factor in local spin reduction, and uses exact disk/hexagon area matching.
-
-Results require the qualifications discussed in the notebook. The continuum quantum energy depends on its ultraviolet cutoff. Applying the printed Section III tunneling prescription literally gives broader bands than Figure 11; this is not a figure-perfect reproduction, and no empirical factor is inserted to force agreement. Equation (22)'s rigid three-dimensional energy shift is distinguished from including longitudinal exchange in the full Bogoliubov problem. The paper does not calculate the spiral's quantum correction or establish a quantum-corrected phase boundary.
-
-The original exploratory notebooks are preserved in [archive/](archive/) for reference. They are not dependencies of the consolidated notebook.
-
-Validated with Wolfram Language 15.0: all 27 code cells evaluated, all 11 numerical checks passed, and the spin-wave Hessian and spin commutators simplified to zero residuals. An independent SciPy solver confirmed the disk energies and literal tunneling estimates.
-
-## Companion Pluto notebook: classical skyrmion model
-
-[Skyrmions_Pires_classical.jl](Skyrmions_Pires_classical.jl) is a Julia [Pluto](https://plutojl.org) notebook that reproduces the classical part of A. S. T. Pires, [*Topological Magnetism in 2D and 3D: Skyrmions and Hopfions. Classical and quantum approaches*](https://arxiv.org/abs/2610.23490), in the same dimensionless units as the Mathematica notebook: the Belavin–Polyakov skyrmion, its Bogomolny bound and stereographic description; the topological charge evaluated on a Cartesian grid for Bloch, Néel, anti- and `m = 2` textures; the Euler–Lagrange profile with Dzyaloshinskii–Moriya interaction and field solved by Newton iteration, the optimal cell radius and the isolated-skyrmion collapse field; the domain-wall ansätze and the easy-axis anisotropy scaling; the helix, helicoid, cone and ferromagnet compared with the skyrmion crystal (critical fields `b₁ ≈ 0.216`, `b_c ≈ 0.801`, `b_hel = π²/16`); and the linearised `K₁`/`I₁` edge tail on a finite disk. The disk energies and optimal radii agree with the Mathematica notebook to `10⁻⁷` and `10⁻⁴` respectively, and the notebook ends with a table of independent pass/fail checks.
-
-**How to run it:** see [README_Pluto.md](README_Pluto.md) (install Pluto, open the notebook, first-run packages, sliders, and troubleshooting). Short version:
+Julia 1.10+. The notebook installs its packages on first open.
 
 ```bash
 julia -e 'using Pkg; Pkg.add("Pluto")'   # once
 julia -e 'using Pluto; Pluto.run(notebook="Skyrmions_Pires_classical.jl")'
 ```
 
-The embedded package environment installs `Plots`, `PlutoUI`, `QuadGK` and `SpecialFunctions` on first use; full evaluation takes about a minute after precompilation.
+## Phase diagram
+
+Compares ferromagnet, helix, helicoid, cone, and skyrmion. Radius `R` is fixed (default 10); there is no minimisation over `R`. Writes `outputs/phase_diagram_ba.png` and `.csv`. Run with `-t auto` so the grid is parallel.
+
+```bash
+julia --project=scripts -e 'using Pkg; Pkg.instantiate()'   # once
+julia --project=scripts -t auto phase_diagram_ba.jl --diagram-only --step 0.05 --R 10
+julia --project=scripts phase_diagram_ba.jl --help
+```
+
+## Monte Carlo (b, θ) diagram
+
+Single-spin Metropolis on a periodic `Nx × Ny` square lattice with `J_lat = 1`, `D_lat = h`, `B_lat = b h²`, `K_lat = a h²` (`h` = mesh spacing in units of `J/D`), temperature `θ = k_B T / J_lat`. Cooling from random spins and heating from seeded helix / skyrmion-lattice / polarized states run as independent trajectories on Julia threads; each `(b, θ)` point is labelled Paramagnet, Polarized, Helical, Skyrmion crystal or Skyrmions (disordered) from the Berg–Lüscher charge, the Bragg peaks of `S(q)`, the sixfold order `ψ₆` of the detected cores and `⟨m_z⟩`. Writes `outputs/monte_carlo_2d/<run-id>/{summaries.csv, phase_diagram.csv, observables.csv, metadata.toml, snapshots/, plots/}`.
+
+```bash
+julia --project=scripts -t auto monte_carlo_2d.jl --selftest   # correctness checks (README_monte_carlo_2d.md Sec. 13.2)
+julia --project=scripts -t auto monte_carlo_2d.jl              # default survey: a = 0, h = 0.5, 72², ~5 min on 8 threads
+julia --project=scripts monte_carlo_2d.jl --help
+```
